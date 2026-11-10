@@ -1,7 +1,5 @@
 import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
+import { Button } from './components/ui/Button'
 import './App.css'
 
 function App() {
@@ -9,7 +7,9 @@ function App() {
 
   return (
     <>
-      hello
+    <div className='flex justify-end'>
+      <Button variant={"secondary"} size={'md'} onclick={()=>{}} className='mt-1 mr-1'>hello</Button>
+      </div>
     </>
   )
 }
