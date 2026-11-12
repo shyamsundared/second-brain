@@ -6,6 +6,7 @@ import jwt from "jsonwebtoken"
 import { JWT_SECRET } from "./config.js";
 import auth from "./middleware.js";
 import { da } from "zod/locales";
+import { randomBytes } from "node:crypto";
 const app = express();
 app.use(express.json());
 
@@ -57,7 +58,7 @@ app.post("/api/v1/signin", async (req, res) => {
             return
         }
         const newId=User.id as unknown as string
-        const token=jwt.sign(newId,JWT_SECRET)
+        const token=jwt.sign({userId:newId},JWT_SECRET)
         return token;
     }
         catch{
@@ -70,14 +71,15 @@ app.post("/api/v1/signin", async (req, res) => {
 });
 
 app.post("/api/v1/content",auth,async (req, res) => {
-    const userid=req.userId;
-    const {link,type,title}=req.body;
-   
+    const userid=Number(req.userId);
+    const {link,type,title,tags}=req.body;
+   try{
     const resp=await prisma.content.create({
         data:{
             link,
             type,
             title,
+            userId:userid,
            tags: {
           connectOrCreate: (tags ?? []).map((t: string) => ({
             where: { title: t },   // use the tag if it exists
@@ -90,6 +92,12 @@ app.post("/api/v1/content",auth,async (req, res) => {
             
         }
     )
+    res.status(201).json({resp:resp})}
+    catch(e){
+        res.status(400).json({
+            message:"could not create content"
+        })
+    }
 })
 
 
@@ -115,12 +123,41 @@ app.delete("/api/v1/:contentid",auth, async(req, res) => {
     })
 });
 
-app.post("/api/v1/brain/share",auth, (req, res) => {
+app.post("/api/v1/brain/share",auth, async (req, res) => {
+    const share=req.body.share;
+    const userId=Number(req.userId)
+    if(share){
+        await prisma.link.upsert({
+          where:{userId},
+          update:{},
+          create:{userId,hash:randomBytes(10).toString("hex")}
+        })
+        res.json({message:"updated sharebale link"})
+    }
+    else{
+        await prisma.link.delete({where:{userId}});
+    }
     
 });
 
-app.get("/api/v1/brain/:sharelink", (req, res) => {
-
+app.get("/api/v1/brain/:sharelink",async (req, res) => {
+    const hash=req.params.sharelink;
+    const link=await prisma.link.findFirst({
+        where:{
+            hash
+        }
+    })
+    if(!link){
+        res.status(411).json({
+            message:"incorret"
+        })
+        return
+    }
+    const cotent=await prisma.content.findFirst({
+        where:{
+            userId:link.userId
+        }
+    })
 });
 
 const PORT = Number(process.env["PORT"] ?? 3000);
