@@ -22,10 +22,11 @@ app.post("/api/v1/signup", async (req, res) => {
             message:"user already exists"
         })
     }
+    const hashedpassword=await bcrypt.hash(password,10);
     try{
         await prisma.user.create({
         data:{
-            username,password
+            username,password:hashedpassword
         }
     })
     }
@@ -50,7 +51,7 @@ app.post("/api/v1/signin", async (req, res) => {
         if(!User){
             return;
         }
-        const iseql=bcrypt.compare(User.password,pass);
+        const iseql=await bcrypt.compare(password,User.password);
         if(!iseql){
             res.status(400).json({
                 message:"bad inpputs"
@@ -59,7 +60,7 @@ app.post("/api/v1/signin", async (req, res) => {
         }
         const newId=User.id as unknown as string
         const token=jwt.sign({userId:newId},JWT_SECRET)
-        return token;
+        res.json({token})
     }
         catch{
             res.status(404).json({

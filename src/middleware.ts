@@ -7,19 +7,22 @@ export default function auth(req:Request,res:Response,next:NextFunction){
         return
     }
     if(typeof token!=="string"){
+        res.status(401).json({messsfe:"invalid"})
         return;
     }
     try{
     const decoded=jwt.verify(token,JWT_SECRET);
     if(typeof decoded ==="string"){
+         res.status(401).json({messsfe:"invalid"})
         return;
+      
     }
-    req.userId=decoded.userId;}
+    req.userId=decoded.userId;next();}
     catch{
-        res.json({msg:"token tampered"})
+        res.status(401).json({msg:"token tampered"})
         return;
     }
-    next();
+    
 
 
 }
