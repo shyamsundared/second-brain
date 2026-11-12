@@ -23,7 +23,7 @@ type ButtonProps = ComponentProps<"button"> &
   VariantProps<typeof buttonvariants> & {
     startIcon?: ReactElement;
     endIcon?:ReactElement
-    onclick:()=>void
+    onclick?:()=>void
   };
 export const Button=({ variant, size, startIcon, className, children,onclick,endIcon,...props }: ButtonProps)=>{
     return <button className={cn(buttonvariants({ variant, size }), className)} {...props} onClick={onclick}>

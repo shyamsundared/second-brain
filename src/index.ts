@@ -28,7 +28,9 @@ app.post("/api/v1/signup", async (req, res) => {
         data:{
             username,password:hashedpassword
         }
+        
     })
+    res.json({message:'signup successful'})
     }
     catch(e){
         res.status(500).json({
