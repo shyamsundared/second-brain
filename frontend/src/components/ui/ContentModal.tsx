@@ -1,3 +1,4 @@
+import type { ComponentProps } from "react";
 import { Crossicon } from "../../icons/Crossicon";
 
 export function ContentModal({open,onclose}){
@@ -20,8 +21,7 @@ export function ContentModal({open,onclose}){
             </div>}
     </div>
 }
-export function Input({placeholder}:{placeholder:string}){
-    return <input type="text" placeholder={placeholder} />
-
-   
+// Accepts any <input> prop (value, onChange, type, ...)
+export function Input(props: ComponentProps<"input">){
+    return <input type="text" className="border border-gray-300 rounded-md px-3 py-2 outline-none focus:border-blued" {...props} />
 }

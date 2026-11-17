@@ -52,13 +52,13 @@ app.post("/api/v1/signin", async (req, res) => {
             }
         })
         if(!User){
-            
+            res.status(401).json({message:"wrong username or password"})
             return;
         }
         const iseql=await bcrypt.compare(password,User.password);
         if(!iseql){
-            res.status(400).json({
-                message:"bad inpputs"
+            res.status(401).json({
+                message:"wrong username or password"
             })
             return
         }
