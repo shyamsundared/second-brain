@@ -120,6 +120,30 @@ app.get("/api/v1/content",auth, async (req, res) => {
     res.json({data})
 });
 
+// Keyword search over title + saved text. Swap the query for hybrid/vector search later.
+app.get("/api/v1/search",auth, async (req, res) => {
+    const userId=Number(req.userId);
+    const q=String(req.query.q ?? "").trim();
+    if(!q){
+        res.status(400).json({message:"q is required"});
+        return;
+    }
+    const results=await prisma.$queryRaw`
+        SELECT id, link, type, title
+        FROM "Content"
+        WHERE "userId" = ${userId}
+          AND (
+            to_tsvector('english', title || ' ' || coalesce(text, '')) @@ websearch_to_tsquery('english', ${q})
+            OR title ILIKE ${"%" + q + "%"}
+          )
+        ORDER BY ts_rank(
+            to_tsvector('english', title || ' ' || coalesce(text, '')),
+            websearch_to_tsquery('english', ${q})
+        ) DESC
+        LIMIT 20`;
+    res.json({results});
+});
+
 app.delete("/api/v1/:contentid",auth, async(req, res) => {
     const contentid=Number(req.params.contentid);
     const userid=Number(req.userId);
