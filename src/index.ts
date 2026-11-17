@@ -7,6 +7,7 @@ import { JWT_SECRET } from "./config.js";
 import auth from "./middleware.js";
 import { da } from "zod/locales";
 import { randomBytes } from "node:crypto";
+import { getLinkText } from "./ingest/linkText.js";
 const app = express();
 app.use(express.json());
 
@@ -51,6 +52,7 @@ app.post("/api/v1/signin", async (req, res) => {
             }
         })
         if(!User){
+            
             return;
         }
         const iseql=await bcrypt.compare(password,User.password);
@@ -77,11 +79,14 @@ app.post("/api/v1/content",auth,async (req, res) => {
     const userid=Number(req.userId);
     const {link,type,title,tags}=req.body;
    try{
+    // Fetch searchable text (tweet text / video description). Never blocks the save.
+    const info=await getLinkText(link);
     const resp=await prisma.content.create({
         data:{
             link,
             type,
-            title,
+            title: title || info?.title || link,
+            text: info?.text ?? null,
             userId:userid,
            tags: {
           connectOrCreate: (tags ?? []).map((t: string) => ({
