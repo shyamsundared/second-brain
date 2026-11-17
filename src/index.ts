@@ -22,6 +22,7 @@ app.post("/api/v1/signup", async (req, res) => {
         res.status(409).json({
             message:"user already exists"
         })
+        return;
     }
     const hashedpassword=await bcrypt.hash(password,10);
     try{
@@ -44,7 +45,6 @@ app.post("/api/v1/signup", async (req, res) => {
 
 app.post("/api/v1/signin", async (req, res) => {
         const {username,password}=req.body;
-        const pass=await bcrypt.hash(password,10);
         try{
         const User=await prisma.user.findFirst({
             where:{
