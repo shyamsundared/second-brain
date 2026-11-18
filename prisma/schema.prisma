@@ -36,6 +36,8 @@ model Content{
   type modeltypes 
   title String
   text String?
+  // Meaning of title + text as 384 numbers (all-MiniLM-L6-v2). Read/written with raw SQL.
+  embedding Unsupported("vector(384)")?
   tags Tag[]
   userId Int
   user User @relation(fields: [userId],references: [id])
