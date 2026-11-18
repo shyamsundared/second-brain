@@ -1,5 +1,6 @@
-// Fetches searchable text for a saved link (tweet text, YouTube title/description).
+// Fetches searchable text for a saved link (tweet text, YouTube title/description/transcript).
 // Returns null when the link isn't supported or the lookup fails.
+import { YoutubeTranscript } from "youtube-transcript";
 
 export interface LinkText {
   title: string;
@@ -62,10 +63,24 @@ async function getYouTubeText(url: URL): Promise<LinkText | null> {
   };
   const s = data.items?.[0]?.snippet;
   if (!s) return null;
+  const transcript = await getTranscript(id);
   return {
     title: s.title,
-    text: [s.title, s.channelTitle, s.description, ...(s.tags ?? [])].join("\n"),
+    text: [s.title, s.channelTitle, s.description, ...(s.tags ?? []), transcript].join("\n"),
   };
+}
+
+// What's said in the video. Uses an unofficial scraper that can break when YouTube
+// changes things, and many videos have no captions, so failure just means "".
+async function getTranscript(videoId: string): Promise<string> {
+  try {
+    const lines = await YoutubeTranscript.fetchTranscript(videoId, {
+      fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) }),
+    });
+    return lines.map((l) => l.text).join(" ").replace(/\s+/g, " ");
+  } catch {
+    return "";
+  }
 }
 
 export async function getLinkText(link: string): Promise<LinkText | null> {
