@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/ContentModal";
 
-export function Signin({ onSignin }: { onSignin: () => void }) {
+export function Signin({ onSignin, onSwitch }: { onSignin: () => void; onSwitch: () => void }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -42,6 +42,10 @@ export function Signin({ onSignin }: { onSignin: () => void }) {
         <Button type="submit" variant="primary" size="lg" disabled={loading} className="disabled:opacity-60">
           {loading ? "Signing in..." : "Sign in"}
         </Button>
+        <p className="text-sm text-gray-600 text-center">
+          Don't have an account?{" "}
+          <button type="button" onClick={onSwitch} className="text-blued font-medium">Sign up</button>
+        </p>
       </form>
     </div>
   );
