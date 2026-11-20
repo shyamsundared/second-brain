@@ -7,8 +7,8 @@ import jwt from "jsonwebtoken"
 import { JWT_SECRET, TOKEN_EXPIRY } from "./config.js";
 import auth from "./middleware.js";
 import { randomBytes } from "node:crypto";
-import { getLinkText } from "./ingest/linkText.js";
-import { embed, saveEmbedding, toVector } from "./ingest/embed.js";
+import { embed, toVector } from "./ingest/embed.js";
+import { startWorker } from "./ingest/worker.js";
 import { contentSchema, shareSchema, signinSchema, signupSchema } from "./types.js";
 const app = express();
 app.use(express.json());
@@ -23,7 +23,7 @@ function badRequest(res: Response, error: ZodError){
 async function listContents(userId:number){
     const contents=await prisma.content.findMany({
         where:{ userId },
-        select:{ id:true, link:true, type:true, title:true, tags:{ select:{ title:true } } },
+        select:{ id:true, link:true, type:true, title:true, status:true, tags:{ select:{ title:true } } },
         orderBy:{ id:"desc" },
     });
     return contents.map(c=>({ ...c, tags:c.tags.map(t=>t.title) }));
@@ -73,14 +73,13 @@ app.post("/api/v1/content",auth,async (req, res) => {
     // " React", "react" and "react " should all be the same tag
     const tagNames=[...new Set(tags.map(t=>t.trim().toLowerCase()).filter(Boolean))];
 
-    // Fetch searchable text (tweet text / video description / transcript). Never blocks the save.
-    const info=await getLinkText(link);
+    // Save right away as "pending". The background worker (src/ingest/worker.ts) fetches the
+    // text and transcript, chunks and embeds it, then marks it "ready".
     const content=await prisma.content.create({
         data:{
             link,
             type,
-            title: title || info?.title || link,
-            text: info?.text ?? null,
+            title: title || link, // the worker replaces this with the real title if none was given
             userId:userid,
             tags: {
                 connectOrCreate: tagNames.map((t) => ({
@@ -89,18 +88,9 @@ app.post("/api/v1/content",auth,async (req, res) => {
                 })),
             },
         },
-        include: { tags: true },
+        select:{ id:true, link:true, type:true, title:true, status:true, tags:{ select:{ title:true } } },
     });
-
-    // Embedding powers semantic search and "similar" items. If it fails, keyword search still works.
-    try{
-        await saveEmbedding(content.id, content.title, content.text);
-    }catch(e){
-        console.error(`could not embed content #${content.id}:`, e);
-    }
-
-    const { text: _text, ...rest }=content;
-    res.status(201).json({ content:{ ...rest, tags:content.tags.map(t=>t.title) } });
+    res.status(201).json({ content:{ ...content, tags:content.tags.map(t=>t.title) } });
 })
 
 app.get("/api/v1/content",auth, async (req, res) => {
@@ -146,23 +136,43 @@ app.get("/api/v1/search",auth, async (req, res) => {
               )
             ORDER BY rank LIMIT 20
         ),
+        -- Each item is as close in meaning as its closest chunk
+        closest_chunk AS (
+            SELECT ch."contentId" AS id, MIN(ch.embedding <=> ${queryVector}::vector) AS distance
+            FROM "Chunk" ch JOIN "Content" c ON c.id = ch."contentId"
+            WHERE c."userId" = ${userId} AND ch.embedding IS NOT NULL
+            GROUP BY ch."contentId"
+        ),
         meaning AS (
-            SELECT c.id, ROW_NUMBER() OVER (ORDER BY c.embedding <=> ${queryVector}::vector) AS rank
-            FROM "Content" c
-            WHERE c."userId" = ${userId}
-              AND c.embedding IS NOT NULL
-              -- <=> is cosine distance (0 = same meaning). Similarity below 0.25 is unrelated for this model.
-              AND 1 - (c.embedding <=> ${queryVector}::vector) > 0.25
+            SELECT id, ROW_NUMBER() OVER (ORDER BY distance) AS rank
+            FROM closest_chunk
+            -- <=> is cosine distance (0 = same meaning). Similarity below 0.25 is unrelated for this model.
+            WHERE 1 - distance > 0.25
             ORDER BY rank LIMIT 20
         ),
         fused AS (
             SELECT id, SUM(1.0 / (60 + rank)) AS score
             FROM (SELECT * FROM keyword UNION ALL SELECT * FROM meaning) both_lists
             GROUP BY id
+        ),
+        -- The moment inside each result to point at: a chunk containing the search words if there
+        -- is one, otherwise the chunk closest in meaning. Weak matches get no moment.
+        moment AS (
+            SELECT DISTINCT ON (ch."contentId") ch."contentId", ch."startSeconds", ch.text
+            FROM "Chunk" ch
+            WHERE ch."contentId" IN (SELECT id FROM fused)
+              AND (to_tsvector('english', ch.text) @@ websearch_to_tsquery('english', ${q})
+                   OR 1 - (ch.embedding <=> ${queryVector}::vector) > 0.3)
+            ORDER BY ch."contentId",
+                     to_tsvector('english', ch.text) @@ websearch_to_tsquery('english', ${q}) DESC,
+                     ch."startSeconds" IS NULL,  -- prefer a timestamped transcript chunk over the description
+                     ch.embedding <=> ${queryVector}::vector
         )
-        SELECT c.id, c.link, c.type, c.title,
-               ARRAY(SELECT t.title FROM "_ContentToTag" ct JOIN "Tag" t ON t.id = ct."B" WHERE ct."A" = c.id) AS tags
+        SELECT c.id, c.link, c.type, c.title, c.status::text AS status,
+               ARRAY(SELECT t.title FROM "_ContentToTag" ct JOIN "Tag" t ON t.id = ct."B" WHERE ct."A" = c.id) AS tags,
+               m."startSeconds" AS "momentSeconds", left(m.text, 200) AS "momentText"
         FROM fused f JOIN "Content" c ON c.id = f.id
+        LEFT JOIN moment m ON m."contentId" = c.id
         ORDER BY f.score DESC
         LIMIT 20`;
     res.json({results});
@@ -229,4 +239,6 @@ app.listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);
   // Load the embedding model now, so the first save/search isn't slow
   embed("warm up").catch((e) => console.error("could not load embedding model:", e));
+  // Runs in the same process for simplicity. It could be moved to its own process later.
+  startWorker();
 });

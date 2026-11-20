@@ -30,18 +30,42 @@ enum modeltypes{
     article
     audio
 }
+// Where a saved item is in the background indexing job (see src/ingest/worker.ts)
+enum IngestStatus{
+    pending
+    processing
+    ready
+    failed
+}
 model Content{
   id Int @id @default(autoincrement())
-  link  String 
-  type modeltypes 
+  link  String
+  type modeltypes
   title String
   text String?
   // Meaning of title + text as 384 numbers (all-MiniLM-L6-v2). Read/written with raw SQL.
   embedding Unsupported("vector(384)")?
+  status IngestStatus @default(pending)
+  attempts Int @default(0)
+  error String?
+  chunks Chunk[]
   tags Tag[]
   userId Int
   user User @relation(fields: [userId],references: [id])
 
+}
+
+// A searchable piece of a saved item: ~45 seconds of a video transcript, or a slice of text.
+model Chunk{
+  id Int @id @default(autoincrement())
+  contentId Int
+  content Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  index Int
+  text String
+  startSeconds Int? // where this piece starts in the video; null for non-video text
+  embedding Unsupported("vector(384)")?
+
+  @@index([contentId])
 }
 
 model Link{

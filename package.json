@@ -9,8 +9,7 @@
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev",
-    "backfill": "tsx src/scripts/backfill.ts"
+    "db:migrate": "prisma migrate dev"
   },
   "keywords": [],
   "author": "",
