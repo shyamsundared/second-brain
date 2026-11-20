@@ -39,6 +39,13 @@ export function Dashboard({ onSignout }: { onSignout: () => void }) {
     return ()=>{ ignore=true; };
   },[reloadKey, onSignout]);
 
+  // While anything is still being indexed in the background, check again every 3 seconds
+  useEffect(()=>{
+    if(!contents?.some(c=>c.status==="pending" || c.status==="processing")) return;
+    const timer=setTimeout(()=>setReloadKey(k=>k+1),3000);
+    return ()=>clearTimeout(timer);
+  },[contents]);
+
   // Is the brain already shared? Show the link if so.
   useEffect(()=>{
     api("/api/v1/brain/share").then(async (res)=>{
@@ -138,7 +145,8 @@ export function Dashboard({ onSignout }: { onSignout: () => void }) {
         <p className='text-gray-500 text-sm'>{loadingText}</p>
       ) : visible.length ? (
         visible.map(c=>(
-          <Card key={c.id} title={c.title} link={c.link} tags={c.tags} onTagClick={searchFor}
+          <Card key={c.id} title={c.title} link={c.link} tags={c.tags} status={c.status}
+            momentSeconds={c.momentSeconds} momentText={c.momentText} onTagClick={searchFor}
             onDelete={()=>deleteContent(c)} onSimilar={()=>showSimilar(c)}/>
         ))
       ) : (

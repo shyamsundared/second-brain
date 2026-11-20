@@ -3,6 +3,11 @@ export interface Content {
   title: string
   link: string
   tags: string[]
+  // Background indexing: fetching text, chunking, embedding
+  status: "pending" | "processing" | "ready" | "failed"
+  // Only on search results: where in the video the match is (null if it's not in the transcript)
+  momentSeconds?: number | null
+  momentText?: string | null
 }
 
 export type Kind = "youtube" | "twitter" | "article"

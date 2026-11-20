@@ -3,7 +3,7 @@ import { ArrowTopRightOnSquareIcon, SparklesIcon, TrashIcon } from "@heroicons/r
 import { VideoIcon } from "../../icons/VideoIcon";
 import { TweetIcon } from "../../icons/TweetIcon";
 import { DocumentLink } from "../../icons/DocumentIcon";
-import { kindOf } from "../../lib/content";
+import { kindOf, type Content } from "../../lib/content";
 
 declare global {
   interface Window {
@@ -15,6 +15,10 @@ interface CardProps {
   title: string;
   link: string;
   tags?: string[];
+  status?: Content["status"];
+  // From search: start the video at the matching moment and show what's said there
+  momentSeconds?: number | null;
+  momentText?: string | null;
   onTagClick?: (tag: string) => void;
   // Leave these out for read-only cards (e.g. on a shared page)
   onDelete?: () => void;
@@ -31,10 +35,20 @@ function getYouTubeId(link: string) {
   return url.searchParams.get("v");
 }
 
+// 754 -> "12:34", 3754 -> "1:02:34"
+function formatTime(seconds: number) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = String(seconds % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+}
+
 const iconButton = "text-gray-400 hover:text-blued";
 
-export function Card({ title, link, tags = [], onTagClick, onDelete, onSimilar }: CardProps) {
+export function Card({ title, link, tags = [], status = "ready", momentSeconds, momentText, onTagClick, onDelete, onSimilar }: CardProps) {
   const kind = kindOf(link);
+  const videoId = kind === "youtube" ? getYouTubeId(link) : null;
+  const hasMoment = kind === "youtube" && momentSeconds != null;
 
   // Load Twitter's script once, or ask it to re-scan if it's already loaded
   useEffect(() => {
@@ -59,8 +73,16 @@ export function Card({ title, link, tags = [], onTagClick, onDelete, onSimilar }
           <div className="pt-0.5 text-gray-500 shrink-0">
             {kind === "youtube" ? <VideoIcon /> : kind === "twitter" ? <TweetIcon /> : <DocumentLink />}
           </div>
-          <span className="line-clamp-2 break-words">{title}</span>
+          <span className="line-clamp-2 wrap-break-word">{title}</span>
         </div>
+        {(status === "pending" || status === "processing") && (
+          <span className="shrink-0 text-xs text-gray-500 bg-gray-100 rounded-full px-2 py-0.5 animate-pulse">Indexing…</span>
+        )}
+        {status === "failed" && (
+          <span className="shrink-0 text-xs text-red-600 bg-red-50 rounded-full px-2 py-0.5" title="Couldn't fetch this link's text. Only the title is searchable.">
+            Not indexed
+          </span>
+        )}
         <div className="flex items-center gap-2 shrink-0">
           {onSimilar && (
             <button type="button" onClick={onSimilar} title="Show similar" className={iconButton}>
@@ -82,12 +104,25 @@ export function Card({ title, link, tags = [], onTagClick, onDelete, onSimilar }
         {kind === "youtube" && (
           <iframe
             className="w-full aspect-video"
-            src={`https://www.youtube.com/embed/${getYouTubeId(link)}`}
+            // Search results start the embedded video at the matching moment
+            src={`https://www.youtube.com/embed/${videoId}${hasMoment ? `?start=${momentSeconds}` : ""}`}
             title={title}
             referrerPolicy="strict-origin-when-cross-origin"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowFullScreen
           />
+        )}
+
+        {hasMoment && (
+          <a
+            href={`https://www.youtube.com/watch?v=${videoId}&t=${momentSeconds}s`}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-2 block text-xs text-gray-600 hover:text-blued"
+          >
+            <span className="font-medium text-blued">▶ {formatTime(momentSeconds)}</span>{" "}
+            <span className="line-clamp-2">“{momentText}…”</span>
+          </a>
         )}
 
         {kind === "twitter" && (
