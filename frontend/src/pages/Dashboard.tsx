@@ -7,6 +7,8 @@ import { Card } from '../components/ui/Card'
 import { ContentModal } from '../components/ui/ContentModal'
 import { SideBar, type Filter } from '../components/ui/Sidebar'
 import { SearchBar } from '../components/ui/SearchBar'
+import { AskPanel } from '../components/ui/AskPanel'
+import { SparklesIcon } from '@heroicons/react/24/outline'
 import { api, kindOf, type Content } from '../lib/content'
 
 export function Dashboard({ onSignout }: { onSignout: () => void }) {
@@ -20,6 +22,7 @@ export function Dashboard({ onSignout }: { onSignout: () => void }) {
   const [similar,setSimilar]=useState<{ title: string; items: Content[] | null } | null>(null);
   const [shareHash,setShareHash]=useState<string | null>(null);
   const [copied,setCopied]=useState(false);
+  const [askOpen,setAskOpen]=useState(false);
 
   // Used by the search bar and by clicking a tag on a card
   function searchFor(text: string){
@@ -117,12 +120,19 @@ export function Dashboard({ onSignout }: { onSignout: () => void }) {
       <SearchBar value={query} onChange={searchFor}/>
       <div className='flex items-center gap-2'>
         <Button variant={"primary"} size={'md'} onclick={()=>{setmodalopen(true)}} startIcon={<PlusIcon size={'sm'}/>}>Add Content</Button>
+        <Button variant={askOpen ? "primary" : "secondary"} size={'md'} onclick={()=>setAskOpen(o=>!o)} startIcon={<SparklesIcon className='size-4'/>}>Ask</Button>
         {!shareHash && (
           <Button variant={"secondary"} size={'md'} onclick={()=>setSharing(true)} startIcon={<ShareIcon size={'sm'}/>}>Share brain</Button>
         )}
         <Button variant={"secondary"} size={'md'} onclick={onSignout}>Log out</Button>
       </div>
     </div>
+
+    {askOpen && (
+      <div className='ml-72 px-4 pt-3'>
+        <AskPanel onSignout={onSignout}/>
+      </div>
+    )}
 
     {shareHash && (
       <div className='ml-72 mx-4 mt-3 px-4 py-2 rounded-md bg-bluel text-sm flex flex-wrap items-center gap-3'>

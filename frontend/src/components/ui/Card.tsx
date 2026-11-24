@@ -3,7 +3,7 @@ import { ArrowTopRightOnSquareIcon, SparklesIcon, TrashIcon } from "@heroicons/r
 import { VideoIcon } from "../../icons/VideoIcon";
 import { TweetIcon } from "../../icons/TweetIcon";
 import { DocumentLink } from "../../icons/DocumentIcon";
-import { kindOf, type Content } from "../../lib/content";
+import { formatTime, getYouTubeId, kindOf, type Content } from "../../lib/content";
 
 declare global {
   interface Window {
@@ -23,24 +23,6 @@ interface CardProps {
   // Leave these out for read-only cards (e.g. on a shared page)
   onDelete?: () => void;
   onSimilar?: () => void;
-}
-
-// "https://www.youtube.com/watch?v=abc123" -> "abc123"
-// "https://youtu.be/abc123"                -> "abc123"
-// "https://www.youtube.com/shorts/abc123"  -> "abc123"
-function getYouTubeId(link: string) {
-  const url = new URL(link);
-  if (url.hostname === "youtu.be") return url.pathname.slice(1);
-  if (url.pathname.startsWith("/shorts/")) return url.pathname.split("/")[2];
-  return url.searchParams.get("v");
-}
-
-// 754 -> "12:34", 3754 -> "1:02:34"
-function formatTime(seconds: number) {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = String(seconds % 60).padStart(2, "0");
-  return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
 }
 
 const iconButton = "text-gray-400 hover:text-blued";
@@ -135,6 +117,10 @@ export function Card({ title, link, tags = [], status = "ready", momentSeconds, 
           <a href={link} target="_blank" rel="noreferrer" className="block text-sm text-blued underline break-all">
             {new URL(link).hostname}
           </a>
+        )}
+
+        {kind === "article" && momentText && (
+          <p className="mt-2 text-xs text-gray-600 line-clamp-3">“{momentText}…”</p>
         )}
       </div>
 

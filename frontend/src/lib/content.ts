@@ -24,6 +24,24 @@ export function kindOf(link: string): Kind {
   return "article"
 }
 
+// "https://www.youtube.com/watch?v=abc123" -> "abc123"
+// "https://youtu.be/abc123"                -> "abc123"
+// "https://www.youtube.com/shorts/abc123"  -> "abc123"
+export function getYouTubeId(link: string) {
+  const url = new URL(link)
+  if (url.hostname === "youtu.be") return url.pathname.slice(1)
+  if (url.pathname.startsWith("/shorts/")) return url.pathname.split("/")[2]
+  return url.searchParams.get("v")
+}
+
+// 754 -> "12:34", 3754 -> "1:02:34"
+export function formatTime(seconds: number) {
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = String(seconds % 60).padStart(2, "0")
+  return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`
+}
+
 // fetch() with JSON headers and the saved login token
 export function api(path: string, init: RequestInit = {}) {
   return fetch(path, {
