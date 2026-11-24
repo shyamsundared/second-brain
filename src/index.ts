@@ -9,7 +9,9 @@ import auth from "./middleware.js";
 import { randomBytes } from "node:crypto";
 import { embed, toVector } from "./ingest/embed.js";
 import { startWorker } from "./ingest/worker.js";
-import { contentSchema, shareSchema, signinSchema, signupSchema } from "./types.js";
+import { askSchema, contentSchema, shareSchema, signinSchema, signupSchema } from "./types.js";
+import Anthropic from "@anthropic-ai/sdk";
+import { askBrain } from "./ask.js";
 const app = express();
 app.use(express.json());
 

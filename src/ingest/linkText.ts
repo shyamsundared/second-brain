@@ -1,7 +1,8 @@
-// Fetches searchable text for a saved link (tweet text, YouTube title/description/transcript).
+// Fetches searchable text for a saved link (tweet text, YouTube title/description/transcript, article text).
 // Returns null when there's nothing to fetch (unsupported link, deleted tweet, missing video).
 // Throws on network/API errors, so the background job can retry later.
 import { YoutubeTranscript } from "youtube-transcript";
+import { getArticleText } from "./article.js";
 
 export interface TranscriptLine {
   text: string;
@@ -110,5 +111,7 @@ export async function getLinkText(link: string): Promise<LinkText | null> {
 
   if (host === "x.com" || host === "twitter.com") return getTweetText(link);
   if (host === "youtube.com" || host === "youtu.be") return getYouTubeText(url);
-  return null;
+
+  const article = await getArticleText(link);
+  return article && { ...article, transcript: [] };
 }
