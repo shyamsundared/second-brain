@@ -23,6 +23,10 @@ export const shareSchema = z.object({
     share: z.boolean(),
 })
 
+export const askSchema = z.object({
+    question: z.string().trim().min(3, "must be at least 3 characters").max(500, "must be at most 500 characters"),
+})
+
 declare global{
     namespace Express{
         interface Request{

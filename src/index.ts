@@ -125,17 +125,25 @@ app.get("/api/v1/search",auth, async (req, res) => {
 
     // _ContentToTag is Prisma's join table: "A" = Content.id, "B" = Tag.id
     const results=await prisma.$queryRaw`
-        WITH keyword AS (
-            SELECT c.id, ROW_NUMBER() OVER (ORDER BY ts_rank(
-                to_tsvector('english', c.title || ' ' || coalesce(c.text, '')),
-                websearch_to_tsquery('english', ${q})) DESC) AS rank
+        -- Search words must appear together inside one chunk (~800 chars). Matching against a whole
+        -- item's text was too loose: a long article contains almost any two common words somewhere.
+        WITH keyword_hits AS (
+            SELECT ch."contentId" AS id, ts_rank(to_tsvector('english', ch.text), websearch_to_tsquery('english', ${q})) AS score
+            FROM "Chunk" ch JOIN "Content" c ON c.id = ch."contentId"
+            WHERE c."userId" = ${userId}
+              AND to_tsvector('english', ch.text) @@ websearch_to_tsquery('english', ${q})
+            UNION ALL
+            -- Title or tag matches rank above any text match (also finds items still being indexed)
+            SELECT c.id, 1.0 AS score
             FROM "Content" c
             WHERE c."userId" = ${userId}
-              AND (
-                to_tsvector('english', c.title || ' ' || coalesce(c.text, '')) @@ websearch_to_tsquery('english', ${q})
-                OR c.title ILIKE ${"%" + q + "%"}
-                OR EXISTS (SELECT 1 FROM "_ContentToTag" ct JOIN "Tag" t ON t.id = ct."B" WHERE ct."A" = c.id AND t.title ILIKE ${q})
-              )
+              AND (c.title ILIKE ${"%" + q + "%"}
+                   OR EXISTS (SELECT 1 FROM "_ContentToTag" ct JOIN "Tag" t ON t.id = ct."B" WHERE ct."A" = c.id AND t.title ILIKE ${q}))
+        ),
+        keyword AS (
+            SELECT id, ROW_NUMBER() OVER (ORDER BY MAX(score) DESC) AS rank
+            FROM keyword_hits
+            GROUP BY id
             ORDER BY rank LIMIT 20
         ),
         -- Each item is as close in meaning as its closest chunk
@@ -148,8 +156,9 @@ app.get("/api/v1/search",auth, async (req, res) => {
         meaning AS (
             SELECT id, ROW_NUMBER() OVER (ORDER BY distance) AS rank
             FROM closest_chunk
-            -- <=> is cosine distance (0 = same meaning). Similarity below 0.25 is unrelated for this model.
-            WHERE 1 - distance > 0.25
+            -- <=> is cosine distance (0 = same meaning). With many chunks per item, an unrelated item's
+            -- best chunk can reach ~0.35 by chance; real matches measured 0.37-0.62 for this model.
+            WHERE 1 - distance > 0.35
             ORDER BY rank LIMIT 20
         ),
         fused AS (
@@ -164,7 +173,7 @@ app.get("/api/v1/search",auth, async (req, res) => {
             FROM "Chunk" ch
             WHERE ch."contentId" IN (SELECT id FROM fused)
               AND (to_tsvector('english', ch.text) @@ websearch_to_tsquery('english', ${q})
-                   OR 1 - (ch.embedding <=> ${queryVector}::vector) > 0.3)
+                   OR 1 - (ch.embedding <=> ${queryVector}::vector) > 0.35)
             ORDER BY ch."contentId",
                      to_tsvector('english', ch.text) @@ websearch_to_tsquery('english', ${q}) DESC,
                      ch."startSeconds" IS NULL,  -- prefer a timestamped transcript chunk over the description
@@ -178,6 +187,31 @@ app.get("/api/v1/search",auth, async (req, res) => {
         ORDER BY f.score DESC
         LIMIT 20`;
     res.json({results});
+});
+
+// Answer a question from the user's saved items, with citations (see src/ask.ts)
+app.post("/api/v1/ask",auth, async (req, res) => {
+    const parsed=askSchema.safeParse(req.body);
+    if(!parsed.success) return badRequest(res, parsed.error);
+    if(!process.env["ANTHROPIC_API_KEY"]){
+        res.status(503).json({message:"Ask isn't set up on this server yet (ANTHROPIC_API_KEY is missing)"});
+        return;
+    }
+    try{
+        res.json(await askBrain(req.userId, parsed.data.question));
+    }catch(e){
+        if(e instanceof Anthropic.AuthenticationError){
+            console.error("ask: ANTHROPIC_API_KEY was rejected:", e.message);
+            res.status(503).json({message:"Ask isn't set up on this server yet"});
+        }else if(e instanceof Anthropic.RateLimitError){
+            res.status(429).json({message:"Too many questions right now, try again in a minute"});
+        }else if(e instanceof Anthropic.APIError){
+            console.error("ask failed:", e.status, e.message);
+            res.status(502).json({message:"Couldn't get an answer, try again"});
+        }else{
+            throw e;
+        }
+    }
 });
 
 // Other saved items closest in meaning to this one
