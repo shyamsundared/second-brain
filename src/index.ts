@@ -1,5 +1,7 @@
 import "dotenv/config";
-import express, { type Response } from "express";
+import express, { type NextFunction, type Request, type Response } from "express";
+import fs from "node:fs";
+import path from "node:path";
 import type { ZodError } from "zod";
 import {prisma} from "./lib/prisma.js"
 import bcrypt from "bcrypt"
@@ -12,8 +14,26 @@ import { startWorker } from "./ingest/worker.js";
 import { askSchema, contentSchema, shareSchema, signinSchema, signupSchema } from "./types.js";
 import Anthropic from "@anthropic-ai/sdk";
 import { askBrain } from "./ask.js";
+import { rateLimit } from "./rateLimit.js";
 const app = express();
+// Hosts like Render/Railway/Fly put a proxy in front of the app. Trusting one hop makes
+// req.ip the visitor's IP instead of the proxy's, so per-IP rate limits work.
+app.set("trust proxy", 1);
 app.use(express.json());
+
+const MINUTE=60_000;
+// Slows down password guessing (signin and signup share it)
+const authLimit=rateLimit(20, 15*MINUTE, req=>req.ip ?? "unknown");
+// Each question is a paid model call
+const askLimit=rateLimit(20, 60*MINUTE, req=>String(req.userId));
+// Each save fetches a page and runs the embedding model
+const saveLimit=rateLimit(100, 60*MINUTE, req=>String(req.userId));
+
+// For the host's health checks: is the server up and can it reach the database?
+app.get("/health", async (_req, res) => {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ ok:true });
+});
 
 // Send the first validation problem back as a readable message, e.g. "password: must be at least 6 characters"
 function badRequest(res: Response, error: ZodError){
@@ -31,7 +51,7 @@ async function listContents(userId:number){
     return contents.map(c=>({ ...c, tags:c.tags.map(t=>t.title) }));
 }
 
-app.post("/api/v1/signup", async (req, res) => {
+app.post("/api/v1/signup", authLimit, async (req, res) => {
     const parsed=signupSchema.safeParse(req.body);
     if(!parsed.success) return badRequest(res, parsed.error);
     const {username,password}=parsed.data;
@@ -52,7 +72,7 @@ app.post("/api/v1/signup", async (req, res) => {
     res.status(201).json({message:'signup successful'})
 });
 
-app.post("/api/v1/signin", async (req, res) => {
+app.post("/api/v1/signin", authLimit, async (req, res) => {
     const parsed=signinSchema.safeParse(req.body);
     if(!parsed.success) return badRequest(res, parsed.error);
     const {username,password}=parsed.data;
@@ -67,7 +87,7 @@ app.post("/api/v1/signin", async (req, res) => {
     res.json({token})
 });
 
-app.post("/api/v1/content",auth,async (req, res) => {
+app.post("/api/v1/content",auth,saveLimit,async (req, res) => {
     const parsed=contentSchema.safeParse(req.body);
     if(!parsed.success) return badRequest(res, parsed.error);
     const {link,type,title,tags}=parsed.data;
@@ -190,7 +210,7 @@ app.get("/api/v1/search",auth, async (req, res) => {
 });
 
 // Answer a question from the user's saved items, with citations (see src/ask.ts)
-app.post("/api/v1/ask",auth, async (req, res) => {
+app.post("/api/v1/ask",auth,askLimit, async (req, res) => {
     const parsed=askSchema.safeParse(req.body);
     if(!parsed.success) return badRequest(res, parsed.error);
     if(!process.env["ANTHROPIC_API_KEY"]){
@@ -268,6 +288,34 @@ app.get("/api/v1/brain/:hash",async (req, res) => {
         return
     }
     res.json({ username: link.user.username, data: await listContents(link.userId) });
+});
+
+// In production the server also serves the built React app (frontend/dist), so the site and
+// the API share one address. Locally the Vite dev server does this, and the folder may not exist.
+const frontendDir=path.join(import.meta.dirname, "../frontend/dist");
+if(fs.existsSync(frontendDir)){
+    app.use(express.static(frontendDir));
+    // Any other page (e.g. /share/<hash>) is handled by React, so it gets index.html
+    app.use((req, res, next) => {
+        if(req.method!=="GET" || req.path.startsWith("/api/")) return next();
+        res.sendFile(path.join(frontendDir, "index.html"));
+    });
+}
+
+app.use("/api", (_req, res) => {
+    res.status(404).json({ message:"not found" });
+});
+
+// Last stop for errors: log the details, send JSON without internals (no stack traces)
+app.use((err: Error & { status?: number; expose?: boolean }, _req: Request, res: Response, next: NextFunction) => {
+    if(res.headersSent) return next(err);
+    // Errors from Express itself, e.g. a request body that isn't valid JSON (400)
+    if(err.status && err.status < 500){
+        res.status(err.status).json({ message: err.expose ? err.message : "bad request" });
+        return;
+    }
+    console.error(err);
+    res.status(500).json({ message:"Something went wrong" });
 });
 
 const PORT = Number(process.env["PORT"] ?? 3000);
